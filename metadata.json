@@ -1,0 +1,5 @@
+{
+  "name": "LoLRobujkul",
+  "description": "A Twitch chatbot that provides League of Legends stats and champion information using the Riot Games API.",
+  "requestFramePermissions": []
+}

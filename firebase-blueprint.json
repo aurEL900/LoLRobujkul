@@ -1,0 +1,89 @@
+{
+  "entities": {
+    "Config": {
+      "title": "Bot Configuration",
+      "description": "Global configuration and credentials for the bot.",
+      "type": "object",
+      "properties": {
+        "TWITCH_USERNAME": { "type": "string" },
+        "TWITCH_OAUTH_TOKEN": { "type": "string" },
+        "TWITCH_CHANNEL": { "type": "string" },
+        "RIOT_API_KEY": { "type": "string" },
+        "GEMINI_API_KEY": { "type": "string" },
+        "ADMIN_PASSWORD": { "type": "string" },
+        "evasionPatterns": { "type": "array", "items": { "type": "string" } },
+        "autoPunish": { "type": "boolean" },
+        "welcomeEnabled": { "type": "boolean" },
+        "welcomeMessage": { "type": "string" },
+        "rankTemplate": { "type": "string" },
+        "DEFAULT_RIOT_REGION": { "type": "string" }
+      }
+    },
+    "Log": {
+      "title": "Bot Log",
+      "description": "Activity logs for the bot.",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["INFO", "ERROR", "MOD", "CHAT"] },
+        "message": { "type": "string" }
+      },
+      "required": ["timestamp", "type", "message"]
+    },
+    "CustomCommand": {
+      "title": "Custom Command",
+      "description": "User-defined bot commands.",
+      "type": "object",
+      "properties": {
+        "command": { "type": "string" },
+        "response": { "type": "string" }
+      },
+      "required": ["command", "response"]
+    },
+    "AccessRequest": {
+      "title": "Access Request",
+      "description": "Request for dashboard or operator access.",
+      "type": "object",
+      "properties": {
+        "twitchUsername": { "type": "string" },
+        "email": { "type": "string" },
+        "authCode": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["twitchUsername", "email", "authCode", "status", "timestamp"]
+    },
+    "AuthorizedEmail": {
+      "title": "Authorized Email",
+      "description": "An email address authorized to access the dashboard.",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string", "enum": ["admin", "moderator"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["role"]
+    }
+  },
+  "firestore": {
+    "/config/bot": {
+      "schema": "Config",
+      "description": "The main bot configuration document."
+    },
+    "/logs/{logId}": {
+      "schema": "Log",
+      "description": "Collection of bot activity logs."
+    },
+    "/commands/{cmdId}": {
+      "schema": "CustomCommand",
+      "description": "Collection of custom bot commands."
+    },
+    "/access_requests/{requestId}": {
+      "schema": "AccessRequest",
+      "description": "Collection of pending access requests."
+    },
+    "/authorized_emails/{email}": {
+      "schema": "AuthorizedEmail",
+      "description": "Collection of authorized dashboard emails."
+    }
+  }
+}

@@ -1,0 +1,174 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: config
+// Document ID: bot
+// Fields:
+//   - TWITCH_USERNAME: string
+//   - TWITCH_OAUTH_TOKEN: string
+//   - TWITCH_CHANNEL: string
+//   - RIOT_API_KEY: string
+//   - GEMINI_API_KEY: string
+//   - ADMIN_PASSWORD: string
+//   - evasionPatterns: list (strings)
+//   - autoPunish: bool
+//   - welcomeEnabled: bool
+//   - welcomeMessage: string
+//   - rankTemplate: string
+//   - DEFAULT_RIOT_REGION: string
+//
+// Collection: logs
+// Document ID: auto-generated
+// Fields:
+//   - timestamp: string (ISO 8601)
+//   - type: string (INFO, ERROR, MOD, CHAT)
+//   - message: string
+//
+// Collection: commands
+// Document ID: auto-generated
+// Fields:
+//   - command: string
+//   - response: string
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Check if user is an admin based on the authorized_emails collection or hardcoded owner
+    function isAdmin() {
+      return isAuthenticated() && 
+             (request.auth.token.email == "fireskyer@gmail.com" || 
+              (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
+               get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.role == "admin"));
+    }
+
+    // Check if user is at least a moderator
+    function isModerator() {
+      return isAuthenticated() && 
+             (isAdmin() || 
+              (exists(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)) &&
+               get(/databases/$(database)/documents/authorized_emails/$(request.auth.token.email)).data.role == "moderator"));
+    }
+
+    // Helper to check if a field is unchanged
+    function isUnchanged(field) {
+      return !(field in request.resource.data) || request.resource.data[field] == resource.data[field];
+    }
+
+    // Helper to check if a timestamp is recent (within 1 minute)
+    function isRecent(ts) {
+      return ts is string && 
+             request.time - timestamp(ts) < duration.value(60, 's');
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidConfig(data) {
+      let allowedFields = ['TWITCH_USERNAME', 'TWITCH_OAUTH_TOKEN', 'TWITCH_CHANNEL', 'RIOT_API_KEY', 'GEMINI_API_KEY', 'ADMIN_PASSWORD', 'evasionPatterns', 'autoPunish', 'welcomeEnabled', 'welcomeMessage', 'rankTemplate', 'DEFAULT_RIOT_REGION'];
+      return data.keys().hasOnly(allowedFields) &&
+             (data.get('TWITCH_USERNAME', '') is string && data.get('TWITCH_USERNAME', '').size() < 100) &&
+             (data.get('TWITCH_OAUTH_TOKEN', '') is string && data.get('TWITCH_OAUTH_TOKEN', '').size() < 200) &&
+             (data.get('TWITCH_CHANNEL', '') is string && data.get('TWITCH_CHANNEL', '').size() < 100) &&
+             (data.get('RIOT_API_KEY', '') is string && data.get('RIOT_API_KEY', '').size() < 100) &&
+             (data.get('GEMINI_API_KEY', '') is string && data.get('GEMINI_API_KEY', '').size() < 100) &&
+             (data.get('ADMIN_PASSWORD', '') is string && data.get('ADMIN_PASSWORD', '').size() < 100) &&
+             (data.get('evasionPatterns', []) is list && data.get('evasionPatterns', []).size() < 100) &&
+             (data.get('autoPunish', false) is bool) &&
+             (data.get('welcomeEnabled', false) is bool) &&
+             (data.get('welcomeMessage', '') is string && data.get('welcomeMessage', '').size() < 1000) &&
+             (data.get('rankTemplate', '') is string && data.get('rankTemplate', '').size() < 2000) &&
+             (data.get('DEFAULT_RIOT_REGION', 'na1') is string && data.get('DEFAULT_RIOT_REGION', '').size() < 20);
+    }
+
+    function isValidLog(data) {
+      return data.keys().hasOnly(['timestamp', 'type', 'message']) &&
+             data.timestamp is string &&
+             data.type in ['INFO', 'ERROR', 'MOD', 'CHAT'] &&
+             data.message is string &&
+             data.message.size() < 5000;
+    }
+
+    function isValidCommand(data) {
+      return data.keys().hasOnly(['command', 'response']) &&
+             data.command is string && data.command.size() > 0 && data.command.size() < 100 &&
+             data.response is string && data.response.size() > 0 && data.response.size() < 2000;
+    }
+
+    function isValidAuthorizedEmail(data) {
+      return data.keys().hasOnly(['role', 'updatedAt']) &&
+             data.role in ['admin', 'moderator'] &&
+             (!('updatedAt' in data) || data.updatedAt is string);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // Config: Only admins can read/write
+    match /config/bot {
+      allow read: if isModerator();
+      allow create, update: if isAdmin() && isValidConfig(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Logs: Moderators can read, only system/admins can create
+    match /logs/{logId} {
+      allow read: if isModerator();
+      allow create: if isModerator() && isValidLog(request.resource.data);
+      allow update: if isAdmin() && isValidLog(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Commands: Moderators can read, admins can write
+    match /commands/{cmdId} {
+      allow read: if isModerator();
+      allow create, update: if isAdmin() && isValidCommand(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Access Requests: Anyone can create, moderators can read, admins can update/delete
+    match /access_requests/{requestId} {
+      function isValidRequest(data) {
+        return data.keys().hasOnly(['twitchUsername', 'email', 'authCode', 'status', 'timestamp']) &&
+               data.twitchUsername is string && data.twitchUsername.size() < 100 &&
+               isValidEmail(data.email) &&
+               data.authCode is string && data.authCode.size() < 200 &&
+               data.status in ['pending', 'approved', 'rejected'] &&
+               data.timestamp is string;
+      }
+      allow create: if isValidRequest(request.resource.data);
+      allow read: if isModerator();
+      allow update: if isAdmin() && 
+                       isValidRequest(request.resource.data) &&
+                       isUnchanged('email') && 
+                       isUnchanged('twitchUsername') && 
+                       isUnchanged('timestamp');
+      allow delete: if isAdmin();
+    }
+
+    // Authorized Emails: Moderators can read, admins can manage
+    match /authorized_emails/{email} {
+      allow read: if isModerator();
+      allow create, update: if isAdmin() && isValidAuthorizedEmail(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
